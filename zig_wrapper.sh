@@ -13,9 +13,9 @@ objcopy | *-objcopy) exec ${ZIG_EXE} objcopy "$@" ;;
 ld.lld | *ld.lld | ld | *-ld) exec ${ZIG_EXE} ld.lld "$@" ;;
 rc) exec $ZIG_EXE rc "$@" ;;
 strip | *-strip)
-	tmpfile="$(mktemp -d --dry-run .XXXX)"
-	zig objcopy --strip-all "$1" "$tmpfile"
-	exec mv "$tmpfile" "$1"
+	tmpfile="$1$(mktemp -d --dry-run .strip.XXXX)"
+	zig objcopy --strip-all "$1" "${tmpfile}"
+	exec mv "${tmpfile}" "$1"
 	;;
 *cc | *c++)
 	if ! [ "${ZIG_TARGET+1}" ]; then
