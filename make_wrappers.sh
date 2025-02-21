@@ -10,7 +10,7 @@ if [ $# -gt 0 ]; then
         target="$1"
         shift
 
-        for tool in ar c++ cc ld objcopy strip; do
+        for tool in ar c++ cc ld objcopy ranlib strip; do
             ln -snf ../zig_wrapper.sh "${ROOTDIR}/bin/${target}-${tool}"
         done
     done
