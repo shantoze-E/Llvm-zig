@@ -18,7 +18,7 @@ strip | *-strip)
 	exec mv "${tmpfile}" "$1"
 	;;
 *cc | *c++)
-	if ! [ "${ZIG_TARGET+1}" ]; then
+	if ! test "${ZIG_TARGET+1}"; then
 		case "${PROGRAM}" in
 		cc | c++) ZIG_TARGET="$(uname -m)-linux-musl" ;;
 		*) ZIG_TARGET=$(echo "${PROGRAM}" | sed -E 's/(.+)(-cc|-c\+\+|-gcc|-g\+\+)/\1/') ;;
