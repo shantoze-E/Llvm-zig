@@ -18,24 +18,62 @@ strip | *-strip)
     exec mv "${tmpfile}" "$1"
     ;;
 *cc | *c++)
-    # Tentukan ZIG_TARGET. Ini masih perlu karena build.sh menyetel ZIG_TARGET.
+    _target_set_by_wrapper=""
     if ! test "${ZIG_TARGET+1}"; then
         case "${PROGRAM}" in
         cc | c++) ZIG_TARGET="$(uname -m)-linux-musl" ;;
-        # Asumsi ini sudah dikonfigurasi di setup.sh atau di main.yml
         armeabi-v7a-cc | armeabi-v7a-c++) ZIG_TARGET="arm-linux-android" ;;
         arm64-v8a-cc | arm64-v8a-c++) ZIG_TARGET="aarch64-linux-android" ;;
         *) ZIG_TARGET=$(echo "${PROGRAM}" | sed -E 's/(.+)(-cc|-c\+\+|-gcc|-g\+\+)/\1/') ;;
         esac
     fi
 
-    # Langsung panggil zig dengan cc/c++ dan --target, lalu semua argumen yang masuk.
-    # Semua filtering flag (seperti -mfloat-abi=hard) harusnya ditangani oleh Zig itu sendiri
-    # atau kita harus mengandalkan CMake untuk tidak mengirim flag yang tidak didukung.
+    # Simpan argumen asli yang diteruskan ke skrip
+    _original_args_list="$@"
+    
+    # Reset argumen untuk membangun daftar argumen baru
+    set --
+
+    # Tambahkan argumen dasar ke daftar argumen baru
     case "${PROGRAM}" in
-    *cc) exec ${ZIG_EXE} cc --target="${ZIG_TARGET}" "$@" ;;
-    *c++) exec ${ZIG_EXE} c++ --target="${ZIG_TARGET}" "$@" ;;
+    *cc) set -- "$@" "cc" "--target=${ZIG_TARGET}" ;;
+    *c++) set -- "$@" "c++" "--target=${ZIG_TARGET}" ;;
     esac
+
+    # Sekarang, proses argumen asli, memfilter yang tidak diinginkan
+    # Gunakan `for` loop sederhana untuk iterasi atas string argumen
+    # Ini memerlukan `eval` untuk memastikan setiap argumen dipisahkan dengan benar
+    # Ini adalah bagian yang paling rentan terhadap masalah quoting di shell POSIX minimalis.
+    # Namun, karena kita tidak membangun string argumen yang kompleks, ini harus lebih aman.
+    _temp_list=""
+    for _arg in $_original_args_list; do
+        case "$_arg" in
+        -Wp,-MD,*)
+            _temp_list="${_temp_list} -MD -MF $(echo "$_arg" | sed 's/^-Wp,-MD,//')"
+            ;;
+        -Wl,--warn-common | -Wl,--verbose | -Wl,-Map,*)
+            ;;
+        --target=*)
+            # Abaikan --target jika ZIG_TARGET sudah disetel oleh wrapper
+            if [ -n "${ZIG_TARGET}" ]; then
+                ;;
+            else
+                _temp_list="${_temp_list} \"$_arg\""
+            fi
+            ;;
+        -mfloat-abi=hard)
+            # Filter flag ini
+            ;;
+        *)
+            _temp_list="${_temp_list} \"$_arg\""
+            ;;
+        esac
+    done
+
+    # Tambahkan argumen yang difilter ke daftar argumen saat ini
+    eval "set -- $@ $_temp_list"
+
+    exec ${ZIG_EXE} "${@}"
     ;;
 *)
     if test -h "$0"; then
