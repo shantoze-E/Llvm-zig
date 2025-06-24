@@ -53,7 +53,7 @@ strip | *-strip)
         --target=*)
             # Abaikan --target jika ZIG_TARGET sudah disetel oleh wrapper
             if [ "${_target_set_by_wrapper}" = "true" ]; then
-                ;;
+                
             else
                 # Tambahkan argumen, dikutuk dengan hati-hati
                 _new_args_eval_string="${_new_args_eval_string} '$(printf '%s' "${_arg}" | sed "s/'/'\\\''/g")'"
