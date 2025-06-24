@@ -27,40 +27,57 @@ strip | *-strip)
         esac
     fi
 
-    # Prepended args
-    set -- "dummy" # Placeholder to make shift work for first real arg
-    case "${PROGRAM}" in
-    *cc) set -- "$@" "cc" "--target=${ZIG_TARGET}" ;;
-    *c++) set -- "$@" "c++" "--target=${ZIG_TARGET}" ;;
-    esac
-    shift # Remove the "dummy" placeholder
+    # Buat file sementara untuk menampung argumen baru
+    _temp_args_file=$(mktemp)
+    
+    # Pastikan file sementara dihapus saat skrip berakhir
+    trap "rm -f ${_temp_args_file}" EXIT
 
-    # Filter arguments
-    _filtered_args=""
+    # Tambahkan argumen awal ke file sementara
+    case "${PROGRAM}" in
+    *cc) printf '%s\n%s\n' "cc" "--target=${ZIG_TARGET}" >> "${_temp_args_file}" ;;
+    *c++) printf '%s\n%s\n' "c++" "--target=${ZIG_TARGET}" >> "${_temp_args_file}" ;;
+    esac
+
+    # Filter argumen yang masuk dan tulis ke file sementara
     while [ "$#" -gt 0 ]; do
         case "$1" in
         -Wp,-MD,*)
-            _filtered_args="${_filtered_args} -MD -MF $(echo "$1" | sed 's/^-Wp,-MD,//')"
+            printf '%s\n' "-MD" >> "${_temp_args_file}"
+            printf '%s\n' "-MF" >> "${_temp_args_file}"
+            printf '%s\n' "$(echo "$1" | sed 's/^-Wp,-MD,//')" >> "${_temp_args_file}"
             ;;
         -Wl,--warn-common | -Wl,--verbose | -Wl,-Map,*)
+            # Abaikan flag ini
             ;;
         --target=*)
             if [ -n "${ZIG_TARGET}" ]; then
-                ;; # Ignore any --target if ZIG_TARGET is explicitly set
+                # Abaikan --target jika ZIG_TARGET sudah disetel
+                ;;
             else
-                _filtered_args="${_filtered_args} \"$1\""
+                printf '%s\n' "$1" >> "${_temp_args_file}"
             fi
             ;;
         -mfloat-abi=hard)
+            # Abaikan flag ini
             ;;
         *)
-            _filtered_args="${_filtered_args} \"$1\""
+            printf '%s\n' "$1" >> "${_temp_args_file}"
             ;;
         esac
         shift
     done
 
-    eval "set -- $_filtered_args"
+    # Baca argumen dari file sementara ke daftar argumen baru ($@)
+    # Ini memerlukan shell yang mendukung array (Bash) untuk membuat argumen secara robust.
+    # Namun, karena workflow GitHub Actions menggunakan '/usr/bin/bash', ini harusnya OK.
+    _new_args=()
+    while IFS= read -r arg_line; do
+        _new_args+=("$arg_line")
+    done < "${_temp_args_file}"
+
+    # Setel ulang argumen $@ dengan argumen yang sudah difilter
+    set -- "${_new_args[@]}"
 
     exec ${ZIG_EXE} "${@}"
     ;;
