@@ -18,68 +18,24 @@ strip | *-strip)
     exec mv "${tmpfile}" "$1"
     ;;
 *cc | *c++)
+    # Tentukan ZIG_TARGET. Ini masih perlu karena build.sh menyetel ZIG_TARGET.
     if ! test "${ZIG_TARGET+1}"; then
         case "${PROGRAM}" in
         cc | c++) ZIG_TARGET="$(uname -m)-linux-musl" ;;
+        # Asumsi ini sudah dikonfigurasi di setup.sh atau di main.yml
         armeabi-v7a-cc | armeabi-v7a-c++) ZIG_TARGET="arm-linux-android" ;;
         arm64-v8a-cc | arm64-v8a-c++) ZIG_TARGET="aarch64-linux-android" ;;
         *) ZIG_TARGET=$(echo "${PROGRAM}" | sed -E 's/(.+)(-cc|-c\+\+|-gcc|-g\+\+)/\1/') ;;
         esac
     fi
 
-    # Buat file sementara untuk menampung argumen baru
-    _temp_args_file=$(mktemp)
-    
-    # Pastikan file sementara dihapus saat skrip berakhir
-    trap "rm -f ${_temp_args_file}" EXIT
-
-    # Tambahkan argumen awal ke file sementara
+    # Langsung panggil zig dengan cc/c++ dan --target, lalu semua argumen yang masuk.
+    # Semua filtering flag (seperti -mfloat-abi=hard) harusnya ditangani oleh Zig itu sendiri
+    # atau kita harus mengandalkan CMake untuk tidak mengirim flag yang tidak didukung.
     case "${PROGRAM}" in
-    *cc) printf '%s\n%s\n' "cc" "--target=${ZIG_TARGET}" >> "${_temp_args_file}" ;;
-    *c++) printf '%s\n%s\n' "c++" "--target=${ZIG_TARGET}" >> "${_temp_args_file}" ;;
+    *cc) exec ${ZIG_EXE} cc --target="${ZIG_TARGET}" "$@" ;;
+    *c++) exec ${ZIG_EXE} c++ --target="${ZIG_TARGET}" "$@" ;;
     esac
-
-    # Filter argumen yang masuk dan tulis ke file sementara
-    while [ "$#" -gt 0 ]; do
-        case "$1" in
-        -Wp,-MD,*)
-            printf '%s\n' "-MD" >> "${_temp_args_file}"
-            printf '%s\n' "-MF" >> "${_temp_args_file}"
-            printf '%s\n' "$(echo "$1" | sed 's/^-Wp,-MD,//')" >> "${_temp_args_file}"
-            ;;
-        -Wl,--warn-common | -Wl,--verbose | -Wl,-Map,*)
-            # Abaikan flag ini
-            ;;
-        --target=*)
-            if [ -n "${ZIG_TARGET}" ]; then
-                # Abaikan --target jika ZIG_TARGET sudah disetel
-                ;;
-            else
-                printf '%s\n' "$1" >> "${_temp_args_file}"
-            fi
-            ;;
-        -mfloat-abi=hard)
-            # Abaikan flag ini
-            ;;
-        *)
-            printf '%s\n' "$1" >> "${_temp_args_file}"
-            ;;
-        esac
-        shift
-    done
-
-    # Baca argumen dari file sementara ke daftar argumen baru ($@)
-    # Ini memerlukan shell yang mendukung array (Bash) untuk membuat argumen secara robust.
-    # Namun, karena workflow GitHub Actions menggunakan '/usr/bin/bash', ini harusnya OK.
-    _new_args=()
-    while IFS= read -r arg_line; do
-        _new_args+=("$arg_line")
-    done < "${_temp_args_file}"
-
-    # Setel ulang argumen $@ dengan argumen yang sudah difilter
-    set -- "${_new_args[@]}"
-
-    exec ${ZIG_EXE} "${@}"
     ;;
 *)
     if test -h "$0"; then
