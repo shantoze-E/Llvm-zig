@@ -9,86 +9,81 @@ ar | *-ar)
     exec "${ZIG_EXE}" ar "$@"
     ;;
 
-dlltool | *-dlltool)
-    exec "${ZIG_EXE}" dlltool "$@"
+ld | *-ld | ld.lld | *-ld.lld)
+    exec "${ZIG_EXE}" ld.lld "$@"
     ;;
 
-lib | *-lib)
-    exec "${ZIG_EXE}" lib "$@"
-    ;;
-
-ranlib | *-ranlib)
-    exec "${ZIG_EXE}" ranlib "$@"
+strip | *-strip)
+    tmpfile="$(mktemp .strip.XXXXXX)"
+    "${ZIG_EXE}" objcopy --strip-all "$1" "${tmpfile}"
+    mv "${tmpfile}" "$1"
+    exit 0
     ;;
 
 objcopy | *-objcopy)
     exec "${ZIG_EXE}" objcopy "$@"
     ;;
 
-ld.lld | *ld.lld | ld | *-ld)
-    exec "${ZIG_EXE}" ld.lld "$@"
-    ;;
-
-rc)
-    exec "${ZIG_EXE}" rc "$@"
-    ;;
-
-strip | *-strip)
-    tmpfile="$(mktemp .strip.XXXXXX)"
-    "${ZIG_EXE}" objcopy --strip-all "$1" "${tmpfile}"
-    exec mv "${tmpfile}" "$1"
-    ;;
-
 *cc | *c++)
     _target_set_by_wrapper="false"
+
+    # Deteksi target triple dari ZIG_TARGET atau nama symlink
     if [ -z "${ZIG_TARGET+x}" ]; then
         case "${PROGRAM}" in
-        cc | c++) ZIG_TARGET="$(uname -m)-linux-musl" ;;
-        armeabi-v7a-cc | armeabi-v7a-c++) ZIG_TARGET="arm-linux-android" ;;
-        arm64-v8a-cc | arm64-v8a-c++) ZIG_TARGET="aarch64-linux-android" ;;
-        *) ZIG_TARGET="$(echo "${PROGRAM}" | sed -E 's/(.+)(-cc|-c\+\+|-gcc|-g\+\+)/\1/')" ;;
+            cc | c++) ZIG_TARGET="$(uname -m)-linux-musl" ;;
+            *) ZIG_TARGET="$(echo "$PROGRAM" | sed -E 's/(.+)(-cc|-c\+\+)//')" ;;
         esac
         _target_set_by_wrapper="true"
     fi
 
-    _new_args_eval_string=""
+    # Inisialisasi argumen baru
+    _new_args=""
+
     case "${PROGRAM}" in
-    *cc) _new_args_eval_string="cc --target=${ZIG_TARGET}" ;;
-    *c++) _new_args_eval_string="c++ --target=${ZIG_TARGET}" ;;
+        *cc) _new_args="cc --target=${ZIG_TARGET}" ;;
+        *c++) _new_args="c++ --target=${ZIG_TARGET}" ;;
     esac
 
     while [ "$#" -gt 0 ]; do
         _arg="$1"
+
         case "$_arg" in
-        -Wp,-MD,*)
-            _new_args_eval_string="${_new_args_eval_string} -MD -MF '$(echo "${_arg}" | sed 's/^-Wp,-MD,//' | sed "s/'/'\\\''/g")'"
-            ;;
-        -Wl,--warn-common | -Wl,--verbose | -Wl,-Map,*)
-            # skip
-            ;;
-        --target=*)
-            if [ "${_target_set_by_wrapper}" = "true" ]; then
-                :
-            else
-                _new_args_eval_string="${_new_args_eval_string} '$(printf '%s' "${_arg}" | sed "s/'/'\\\''/g")'"
-            fi
-            ;;
-        -mfloat-abi=hard)
-            # skip
-            ;;
-        *)
-            _new_args_eval_string="${_new_args_eval_string} '$(printf '%s' "${_arg}" | sed "s/'/'\\\''/g")'"
-            ;;
+            --target=*)
+                # Jangan tambahkan kalau sudah dari wrapper
+                if [ "${_target_set_by_wrapper}" = "true" ]; then
+                    :
+                else
+                    _new_args="${_new_args} '$_arg'"
+                fi
+                ;;
+
+            -mfloat-abi=*)
+                # ❗️ Skip semua varian `-mfloat-abi` karena Zig tidak mendukung untuk Android
+                ;;
+
+            -Wp,-MD,*) # Ubah jadi -MD -MF <file>
+                _mf_file="$(echo "$_arg" | sed 's/^-Wp,-MD,//')"
+                _new_args="${_new_args} -MD -MF '$_mf_file'"
+                ;;
+
+            -Wl,--warn-common | -Wl,--verbose | -Wl,-Map,*)
+                # Skip linker warning flags
+                ;;
+
+            *)
+                _new_args="${_new_args} '$_arg'"
+                ;;
         esac
         shift
     done
 
-    eval "set -- ${_new_args_eval_string}"
+    eval "set -- $_new_args"
     exec "${ZIG_EXE}" "$@"
     ;;
 
 *)
-    if [ -h "$0" ]; then
+    # Fallback symlink support
+    if test -h "$0"; then
         exec "$(dirname "$0")/$(readlink "$0")" "$@"
     fi
     ;;
