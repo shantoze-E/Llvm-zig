@@ -5,79 +5,62 @@ PROGRAM="$(basename "$0")"
 ZIG_EXE=zig
 
 case "${PROGRAM}" in
-ar | *-ar)
-    exec ${ZIG_EXE} ar "$@"
-    ;;
-dlltool | *-dlltool)
-    exec ${ZIG_EXE} dlltool "$@"
-    ;;
-lib | *-lib)
-    exec ${ZIG_EXE} lib "$@"
-    ;;
-ranlib | *-ranlib)
-    exec ${ZIG_EXE} ranlib "$@"
-    ;;
-objcopy | *-objcopy)
-    exec ${ZIG_EXE} objcopy "$@"
-    ;;
-ld.lld | *ld.lld | ld | *-ld)
-    exec ${ZIG_EXE} ld.lld "$@"
-    ;;
-rc)
-    exec ${ZIG_EXE} rc "$@"
-    ;;
+ar | *-ar) exec ${ZIG_EXE} ar "$@" ;;
+dlltool | *-dlltool) exec ${ZIG_EXE} dlltool "$@" ;;
+lib | *-lib) exec ${ZIG_EXE} lib "$@" ;;
+ranlib | *-ranlib) exec ${ZIG_EXE} ranlib "$@" ;;
+objcopy | *-objcopy) exec ${ZIG_EXE} objcopy "$@" ;;
+ld.lld | *ld.lld | ld | *-ld) exec ${ZIG_EXE} ld.lld "$@" ;;
+rc) exec ${ZIG_EXE} rc "$@" ;;
 strip | *-strip)
     tmpfile="$1$(mktemp -d --dry-run .strip.XXXX)"
-    ${ZIG_EXE} objcopy --strip-all "$1" "${tmpfile}"
+    zig objcopy --strip-all "$1" "${tmpfile}"
     exec mv "${tmpfile}" "$1"
     ;;
 *cc | *c++)
-    # Tentukan target berdasarkan nama program jika belum diset secara eksplisit
-    if [ -z "${ZIG_TARGET+x}" ]; then
+    if ! test "${ZIG_TARGET+1}"; then
         case "${PROGRAM}" in
         cc | c++) ZIG_TARGET="$(uname -m)-linux-musl" ;;
         armeabi-v7a-cc | armeabi-v7a-c++) ZIG_TARGET="arm-linux-android" ;;
         arm64-v8a-cc | arm64-v8a-c++) ZIG_TARGET="aarch64-linux-android" ;;
-        *) ZIG_TARGET="$(echo "${PROGRAM}" | sed -E 's/(.+)(-cc|-c\+\+|-gcc|-g\+\+)/\1/')" ;;
+        *) ZIG_TARGET=$(echo "${PROGRAM}" | sed -E 's/(.+)(-cc|-c\+\+|-gcc|-g\+\+)/\1/') ;;
         esac
     fi
 
-    # Bangun argumen dasar berdasarkan program
+    _original_args_list="$@"
+    set --
+
     case "${PROGRAM}" in
-    *cc) ZIG_CMD="cc" ;;
-    *c++) ZIG_CMD="c++" ;;
+    *cc) set -- "$@" cc "--target=${ZIG_TARGET}" ;;
+    *c++) set -- "$@" c++ "--target=${ZIG_TARGET}" ;;
     esac
 
-    # Proses semua argumen masuk
-    NEW_ARGS=""
-    for ARG in "$@"; do
-        case "$ARG" in
+    _temp_list=""
+    for _arg in $_original_args_list; do
+        case "$_arg" in
         -Wp,-MD,*)
-            # Ubah -Wp,-MD,file menjadi -MD -MF file
-            FILE=$(echo "$ARG" | sed 's/^-Wp,-MD,//')
-            NEW_ARGS="$NEW_ARGS -MD -MF \"$FILE\""
+            _temp_list="${_temp_list} -MD -MF $(echo "$_arg" | sed 's/^-Wp,-MD,//')"
             ;;
         -Wl,--warn-common | -Wl,--verbose | -Wl,-Map,*)
-            # Abaikan flag linker yang tidak kompatibel
             ;;
         --target=*)
-            # Abaikan --target jika ZIG_TARGET sudah ditentukan
+            if [ -z "${ZIG_TARGET}" ]; then
+                _temp_list="${_temp_list} \"$_arg\""
+            fi
             ;;
         -mfloat-abi=hard)
-            # Abaikan flag ini karena Zig bisa tidak mendukungnya
             ;;
         *)
-            NEW_ARGS="$NEW_ARGS \"$ARG\""
+            _temp_list="${_temp_list} \"$_arg\""
             ;;
         esac
     done
 
-    # Eksekusi dengan Zig
-    eval "exec ${ZIG_EXE} ${ZIG_CMD} --target=${ZIG_TARGET} ${NEW_ARGS}"
+    eval "set -- $@ $_temp_list"
+    exec ${ZIG_EXE} "$@"
     ;;
 *)
-    # Fallback: jalankan symlink yang menunjuk ke sesuatu
-    if [ -h "$0" ]; then
+    if test -h "$0"; then
         exec "$(dirname "$0")/$(readlink "$0")" "$@"
     fi
     ;;
