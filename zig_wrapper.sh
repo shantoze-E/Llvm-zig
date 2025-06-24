@@ -27,55 +27,40 @@ strip | *-strip)
         esac
     fi
 
-    
-    _current_args=()
+    # Prepended args
+    set -- "dummy" # Placeholder to make shift work for first real arg
     case "${PROGRAM}" in
-    *cc) _current_args=("cc" "--target=${ZIG_TARGET}") ;;
-    *c++) _current_args=("c++" "--target=${ZIG_TARGET}") ;;
+    *cc) set -- "$@" "cc" "--target=${ZIG_TARGET}" ;;
+    *c++) set -- "$@" "c++" "--target=${ZIG_TARGET}" ;;
     esac
+    shift # Remove the "dummy" placeholder
 
-    
-    _filtered_args_file=$(mktemp)
-
+    # Filter arguments
+    _filtered_args=""
     while [ "$#" -gt 0 ]; do
         case "$1" in
         -Wp,-MD,*)
-            printf '%s\n' "-MD" >> "${_filtered_args_file}"
-            printf '%s\n' "-MF" >> "${_filtered_args_file}"
-            printf '%s\n' "$(echo "$1" | sed 's/^-Wp,-MD,//')" >> "${_filtered_args_file}"
+            _filtered_args="${_filtered_args} -MD -MF $(echo "$1" | sed 's/^-Wp,-MD,//')"
             ;;
         -Wl,--warn-common | -Wl,--verbose | -Wl,-Map,*)
-            
             ;;
         --target=*)
-            # Abaikan --target jika kita sudah memiliki ZIG_TARGET yang disetel
             if [ -n "${ZIG_TARGET}" ]; then
-                
-                ;;
+                ;; # Ignore any --target if ZIG_TARGET is explicitly set
             else
-                printf '%s\n' "$1" >> "${_filtered_args_file}"
+                _filtered_args="${_filtered_args} \"$1\""
             fi
             ;;
         -mfloat-abi=hard)
-            
             ;;
         *)
-            printf '%s\n' "$1" >> "${_filtered_args_file}"
+            _filtered_args="${_filtered_args} \"$1\""
             ;;
         esac
-        shift # Pindah ke argumen berikutnya
+        shift
     done
 
-    
-    while IFS= read -r arg; do
-        _current_args+=("$arg")
-    done < "${_filtered_args_file}"
-
-    
-    rm -f "${_filtered_args_file}"
-
-    
-    set -- "${_current_args[@]}"
+    eval "set -- $_filtered_args"
 
     exec ${ZIG_EXE} "${@}"
     ;;
