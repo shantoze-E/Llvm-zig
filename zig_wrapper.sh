@@ -21,6 +21,10 @@ strip | *-strip)
 	if ! test "${ZIG_TARGET+1}"; then
 		case "${PROGRAM}" in
 		cc | c++) ZIG_TARGET="$(uname -m)-linux-musl" ;;
+        # Tambahan eksplisit untuk target Android yang umum.
+        # Catatan: `armv7a` diganti dengan `arm` karena `armv7a` tidak dikenali langsung oleh Zig sebagai arsitektur.
+        armeabi-v7a-cc | armeabi-v7a-c++) ZIG_TARGET="arm-linux-android" ;;
+        arm64-v8a-cc | arm64-v8a-c++) ZIG_TARGET="aarch64-linux-android" ;;
 		*) ZIG_TARGET=$(echo "${PROGRAM}" | sed -E 's/(.+)(-cc|-c\+\+|-gcc|-g\+\+)/\1/') ;;
 		esac
 	fi
@@ -33,14 +37,20 @@ strip | *-strip)
 	## Zig doesn't properly handle these flags so we have to rewrite/ignore.
 	## None of these affect the actual compilation target.
 	## https://github.com/ziglang/zig/issues/9948
-	for argv in "$@"; do
+
+    # Simpan argumen asli sebelum memodifikasinya
+    original_args=("$@")
+    # Reset argumen untuk membangun kembali yang baru
+    set --
+
+	for argv in "${original_args[@]}"; do
 		case "${argv}" in
 		-Wp,-MD,*) set -- "$@" "-MD" "-MF" "$(echo "${argv}" | sed 's/^-Wp,-MD,//')" ;;
 		-Wl,--warn-common | -Wl,--verbose | -Wl,-Map,*) ;;
-		--target=aarch64-unknown-linux-musl) ;;
+		--target=aarch64-unknown-linux-musl) ;; # Abaikan jika sudah disetel secara eksplisit
+        -mfloat-abi=hard) ;; # <-- Tambahan untuk mengabaikan flag ini
 		*) set -- "$@" "${argv}" ;;
 		esac
-		shift
 	done
 
 	exec ${ZIG_EXE} "${@}"
