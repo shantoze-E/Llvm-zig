@@ -27,57 +27,55 @@ strip | *-strip)
         esac
     fi
 
+    
+    _current_args=()
     case "${PROGRAM}" in
-    *cc) set -- cc --target="${ZIG_TARGET}" "$@" ;;
-    *c++) set -- c++ --target="${ZIG_TARGET}" "$@" ;;
+    *cc) _current_args=("cc" "--target=${ZIG_TARGET}") ;;
+    *c++) _current_args=("c++" "--target=${ZIG_TARGET}") ;;
     esac
 
-    # Filter arguments in a POSIX-compliant way
-    # Save original arguments
-    _original_args_count=$#
-    _original_args_idx=1
-    _new_args=""
+    
+    _filtered_args_file=$(mktemp)
 
-    while [ "$_original_args_count" -gt 0 ]; do
-        eval "current_arg=\"\$$((_original_args_idx))\"" # Get current argument safely
-
-        case "${current_arg}" in
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
         -Wp,-MD,*)
-            _new_args="${_new_args} -MD -MF $(echo "${current_arg}" | sed 's/^-Wp,-MD,//')"
+            printf '%s\n' "-MD" >> "${_filtered_args_file}"
+            printf '%s\n' "-MF" >> "${_filtered_args_file}"
+            printf '%s\n' "$(echo "$1" | sed 's/^-Wp,-MD,//')" >> "${_filtered_args_file}"
             ;;
         -Wl,--warn-common | -Wl,--verbose | -Wl,-Map,*)
-            # Ignore these flags
+            
             ;;
         --target=*)
-            # Only ignore if the target matches the one we already set/intend to use
-            # This is to prevent conflicts if CMake tries to override the target
-            # For simplicity, we'll generally ignore explicit --target if ZIG_TARGET is set
-            if [ -n "${ZIG_TARGET}" ] && echo "${current_arg}" | grep -q -- "--target=${ZIG_TARGET}"; then
-                # Ignore this specific target flag if it matches our ZIG_TARGET
+            # Abaikan --target jika kita sudah memiliki ZIG_TARGET yang disetel
+            if [ -n "${ZIG_TARGET}" ]; then
+                
                 ;;
-            # If it's a different --target, we might want to keep it or handle it differently
-            # For now, let's just assume we want to ignore *any* explicit --target if we are managing ZIG_TARGET
-            elif [ -n "${ZIG_TARGET}" ]; then
-                ;; # Ignore any --target if we're explicitly setting ZIG_TARGET
             else
-                _new_args="${_new_args} \"${current_arg}\""
+                printf '%s\n' "$1" >> "${_filtered_args_file}"
             fi
             ;;
         -mfloat-abi=hard)
-            # Ignore this flag
+            
             ;;
         *)
-            _new_args="${_new_args} \"${current_arg}\""
+            printf '%s\n' "$1" >> "${_filtered_args_file}"
             ;;
         esac
-
-        _original_args_idx=$((_original_args_idx + 1))
-        _original_args_count=$((_original_args_count - 1))
+        shift # Pindah ke argumen berikutnya
     done
 
-    # Set the filtered arguments back to $@
-    # Use eval to handle quoted arguments correctly
-    eval "set -- $_new_args"
+    
+    while IFS= read -r arg; do
+        _current_args+=("$arg")
+    done < "${_filtered_args_file}"
+
+    
+    rm -f "${_filtered_args_file}"
+
+    
+    set -- "${_current_args[@]}"
 
     exec ${ZIG_EXE} "${@}"
     ;;
